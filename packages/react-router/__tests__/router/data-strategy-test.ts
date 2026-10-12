@@ -2194,5 +2194,108 @@ describe("router dataStrategy", () => {
         expect(t.router.state.location.pathname).toBe("/page");
       },
     );
+
+    it.each([
+      {
+        name: "an action error",
+        result: "error",
+        replace: undefined,
+        expected: "PUSH",
+      },
+      {
+        name: "an action error with replace: true",
+        result: "error",
+        replace: true,
+        expected: "REPLACE",
+      },
+      {
+        name: "a successful action",
+        result: "data",
+        replace: undefined,
+        expected: "REPLACE",
+      },
+    ] as const)(
+      "passes $expected after $name on a submission to the current location",
+      async ({ result, replace, expected }) => {
+        let calls: Array<{
+          fetcherKey: string | null;
+          navigationType: string | null;
+        }> = [];
+        let t = setup({
+          routes: [
+            {
+              id: "root",
+              path: "/",
+              loader: true,
+              children: [
+                { id: "page", path: "page", loader: true, action: true },
+                {
+                  id: "resource",
+                  path: "resource",
+                  loader: true,
+                  shouldRevalidate: () => true,
+                },
+              ],
+            },
+          ],
+          initialEntries: ["/page"],
+          hydrationData: { loaderData: { root: "ROOT", page: "PAGE" } },
+          dataStrategy: async ({
+            request,
+            matches,
+            fetcherKey,
+            unstable_navigationType,
+          }) => {
+            if (request.method === "GET") {
+              calls.push({
+                fetcherKey,
+                navigationType: unstable_navigationType,
+              });
+            }
+            return Object.fromEntries(
+              matches
+                .filter((m) => m.shouldCallHandler())
+                .map((m) => [
+                  m.route.id,
+                  request.method === "POST"
+                    ? {
+                        type: result,
+                        result:
+                          result === "error" ? new Error("nope") : "ACTION",
+                      }
+                    : { type: "data", result: m.route.id },
+                ]),
+            );
+          },
+        });
+
+        t.router.getFetcher("tracked");
+        await t.router.fetch("tracked", "root", "/resource");
+        calls = [];
+
+        let loadingHistoryActions: string[] = [];
+        t.router.subscribe((state) => {
+          if (state.navigation.state === "loading") {
+            loadingHistoryActions.push(state.navigation.historyAction);
+          }
+        });
+
+        await t.router.navigate("/page", {
+          formMethod: "post",
+          formData: createFormData({}),
+          replace,
+        });
+
+        expect(t.router.state.historyAction).toBe(expected);
+        expect(loadingHistoryActions).toEqual([expected]);
+        expect(calls).toHaveLength(2);
+        expect(calls).toEqual(
+          expect.arrayContaining([
+            { fetcherKey: null, navigationType: expected },
+            { fetcherKey: "tracked", navigationType: expected },
+          ]),
+        );
+      },
+    );
   });
 });

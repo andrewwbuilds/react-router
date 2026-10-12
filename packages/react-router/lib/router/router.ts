@@ -2103,6 +2103,8 @@ export function createRouter(init: RouterInit): Router {
 
       matches = actionResult.matches || matches;
       pendingActionResult = actionResult.pendingActionResult;
+      // handleAction may have switched a REPLACE to a PUSH on an action error
+      historyAction = pendingAction;
       loadingNavigation = getLoadingNavigation(
         location,
         matches,
